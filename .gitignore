@@ -1,0 +1,13 @@
+﻿# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.db
+
+# Node
+node_modules/
+dist/
+
+# 环境变量
+.env
