@@ -103,6 +103,95 @@ def test_login_and_verify_confirmation_emit_audit_logs(client, db_session: Sessi
     assert any('"event": "verify_task.confirm"' in message and '"outcome": "success"' in message for message in messages)
 
 
+def test_non_privileged_user_cannot_escalate_role_via_credential_upsert(client, db_session: Session, test_settings: Settings):
+    db_session.add(UserProfile(user_id=1, active_status="active", open_to_match=1))
+    db_session.commit()
+    upsert_password_credential(db_session, 1, "password123", "user")
+
+    response = client.post(
+        "/api/auth/credential",
+        json={"userId": 1, "password": "new-password123", "role": "admin"},
+        headers=_bearer_headers(1, "user", test_settings),
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Cannot change your own role"
+
+    relogin_response = client.post("/api/auth/login", json={"userId": 1, "password": "password123"})
+    assert relogin_response.status_code == 200
+
+    me_response = client.get(
+        "/api/auth/me",
+        headers={"Authorization": f"Bearer {relogin_response.json()['accessToken']}"},
+    )
+    assert me_response.status_code == 200
+    assert me_response.json()["role"] == "user"
+
+
+def test_non_privileged_user_can_rotate_own_password_without_role_change(client, db_session: Session, test_settings: Settings):
+    db_session.add(UserProfile(user_id=1, active_status="active", open_to_match=1))
+    db_session.commit()
+    upsert_password_credential(db_session, 1, "password123", "user")
+
+    response = client.post(
+        "/api/auth/credential",
+        json={"userId": 1, "password": "rotated-password123", "role": "user"},
+        headers=_bearer_headers(1, "user", test_settings),
+    )
+    assert response.status_code == 200
+    assert response.json() == {"userId": 1, "role": "user"}
+
+    old_password_response = client.post("/api/auth/login", json={"userId": 1, "password": "password123"})
+    assert old_password_response.status_code == 401
+
+    new_password_response = client.post("/api/auth/login", json={"userId": 1, "password": "rotated-password123"})
+    assert new_password_response.status_code == 200
+
+
+def test_non_privileged_user_cannot_update_own_verification_status(client, db_session: Session, test_settings: Settings):
+    db_session.add(UserProfile(user_id=1, active_status="active", open_to_match=1))
+    db_session.commit()
+    upsert_password_credential(db_session, 1, "password123", "user")
+
+    response = client.post(
+        "/api/profile/1",
+        json={"verification_status": "verified"},
+        headers=_bearer_headers(1, "user", test_settings),
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Only privileged actors can update: verification_status"
+
+    profile = db_session.query(UserProfile).filter(UserProfile.user_id == 1).one()
+    assert profile.verification_status is None
+
+
+def test_non_privileged_user_cannot_create_observation_tags(client, db_session: Session, test_settings: Settings):
+    db_session.add(UserProfile(user_id=1, active_status="active", open_to_match=1))
+    db_session.commit()
+    upsert_password_credential(db_session, 1, "password123", "user")
+
+    response = client.post(
+        "/api/profile/1/observation-tag",
+        json={"tag_code": "warm", "tag_value": "kind", "observer_type": "matchmaker"},
+        headers=_bearer_headers(1, "user", test_settings),
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Privileged role required"
+
+
+def test_privileged_actor_can_create_observation_tags(client, db_session: Session, test_settings: Settings):
+    db_session.add(UserProfile(user_id=1, active_status="active", open_to_match=1))
+    db_session.commit()
+
+    response = client.post(
+        "/api/profile/1/observation-tag",
+        json={"tag_code": "warm", "tag_value": "kind", "observer_type": "matchmaker"},
+        headers=_bearer_headers(1, "matchmaker", test_settings),
+    )
+    assert response.status_code == 200
+    assert response.json()["tag_code"] == "warm"
+    assert response.json()["observer_type"] == "matchmaker"
+
+
 def test_production_settings_reject_insecure_runtime_combinations():
     with pytest.raises(ValueError):
         Settings(

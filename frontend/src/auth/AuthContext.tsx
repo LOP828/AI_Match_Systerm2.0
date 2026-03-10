@@ -1,3 +1,5 @@
+/* eslint-disable react-refresh/only-export-components */
+
 import { createContext, useContext, useEffect, useState } from 'react'
 import { api } from '../api/client'
 import {
@@ -25,13 +27,17 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<AuthSession | null>(() => getStoredSession())
-  const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null)
+  const [now, setNow] = useState(() => Date.now())
   const [logoutReason, setLogoutReason] = useState<LogoutReason | null>(() => getStoredLogoutReason())
+
+  const secondsRemaining = session ? Math.max(0, Math.floor((session.expiresAt - now) / 1000)) : null
+  const expiresSoon = secondsRemaining !== null && secondsRemaining <= 300
 
   useEffect(() => {
     const syncSession = () => {
       setSession(getStoredSession())
       setLogoutReason(getStoredLogoutReason())
+      setNow(Date.now())
     }
     window.addEventListener(AUTH_CHANGE_EVENT, syncSession)
     return () => window.removeEventListener(AUTH_CHANGE_EVENT, syncSession)
@@ -39,29 +45,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!session) {
-      setSecondsRemaining(null)
       return
     }
 
-    const updateCountdown = () => {
-      const nextSeconds = Math.max(0, Math.floor((session.expiresAt - Date.now()) / 1000))
-      setSecondsRemaining(nextSeconds)
-      if (nextSeconds <= 0) {
-        clearStoredSession('expired')
-        setSession(null)
-        setLogoutReason('expired')
-      }
-    }
-
-    updateCountdown()
-    const intervalId = window.setInterval(updateCountdown, 1000)
-    window.addEventListener('focus', updateCountdown)
+    const updateNow = () => setNow(Date.now())
+    const intervalId = window.setInterval(updateNow, 1000)
+    window.addEventListener('focus', updateNow)
 
     return () => {
       window.clearInterval(intervalId)
-      window.removeEventListener('focus', updateCountdown)
+      window.removeEventListener('focus', updateNow)
     }
   }, [session])
+
+  useEffect(() => {
+    if (session && secondsRemaining === 0) {
+      clearStoredSession('expired')
+    }
+  }, [secondsRemaining, session])
 
   async function login(userId: number, password: string): Promise<void> {
     const token = await api.auth.login({ userId, password })
@@ -73,12 +74,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     setStoredSession(nextSession)
     setSession(nextSession)
+    setNow(Date.now())
     setLogoutReason(null)
   }
 
   function logout(reason: LogoutReason = 'manual'): void {
     clearStoredSession(reason)
     setSession(null)
+    setNow(Date.now())
     setLogoutReason(reason)
   }
 
@@ -94,7 +97,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         login,
         logout,
         secondsRemaining,
-        expiresSoon: secondsRemaining !== null && secondsRemaining <= 300,
+        expiresSoon,
         logoutReason,
         clearLogoutReason,
       }}

@@ -3,7 +3,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.auth import ActorContext, get_actor_context, require_resource_access
+from app.auth import ActorContext, get_actor_context, require_privileged_role, require_resource_access
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.schemas.profile import (
@@ -30,6 +30,8 @@ from app.services.profile_service import (
 from app.time_utils import to_api_datetime
 
 router = APIRouter()
+
+SELF_SERVICE_PROFILE_FORBIDDEN_FIELDS = {"verification_status"}
 
 
 def _profile_to_response(p) -> ProfileResponse | None:
@@ -122,6 +124,14 @@ def update_profile(
     require_resource_access(actor, user_id, settings)
 
     update_dict: dict[str, Any] = data.model_dump(exclude_unset=True)
+    forbidden_fields = sorted(
+        field for field in SELF_SERVICE_PROFILE_FORBIDDEN_FIELDS
+        if field in update_dict and actor.role not in settings.privileged_role_set
+    )
+    if forbidden_fields:
+        joined_fields = ", ".join(forbidden_fields)
+        raise HTTPException(status_code=403, detail=f"Only privileged actors can update: {joined_fields}")
+
     profile = upsert_user_profile(db, user_id, update_dict)
     return _profile_to_response(profile)
 
@@ -186,7 +196,7 @@ def add_observation_tag(
     actor: ActorContext = Depends(get_actor_context),
     settings: Settings = Depends(get_settings),
 ):
-    require_resource_access(actor, user_id, settings)
+    require_privileged_role(actor, settings)
 
     try:
         tag = add_user_observation_tag(db, user_id, data.model_dump())

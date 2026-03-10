@@ -98,8 +98,21 @@ def upsert_credential(
     actor: ActorContext = Depends(get_actor_context),
     settings: Settings = Depends(get_settings),
 ):
+    is_privileged_actor = actor.role in settings.privileged_role_set
+
     if body.userId != actor.user_id:
         require_privileged_role(actor, settings)
+    elif settings.auth_required and not is_privileged_actor and body.role != actor.role:
+        audit_log(
+            "auth.credential_upsert",
+            "failure",
+            actor=actor,
+            request=request,
+            targetUserId=body.userId,
+            targetRole=body.role,
+            reason="self_role_change_forbidden",
+        )
+        raise HTTPException(status_code=403, detail="Cannot change your own role")
 
     try:
         credential = upsert_password_credential(db, body.userId, body.password, body.role)
