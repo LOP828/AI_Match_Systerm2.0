@@ -89,14 +89,16 @@ def confirm_verify(
     actor: ActorContext = Depends(get_actor_context),
     settings: Settings = Depends(get_settings),
 ):
-    task = db.query(VerifyTask).filter(VerifyTask.task_id == task_id).first()
+    task = (
+        db.query(VerifyTask)
+        .filter(VerifyTask.task_id == task_id)
+        .with_for_update()
+        .first()
+    )
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
     require_resource_access(actor, task.requester_user_id, settings)
-
-    if task.task_status != "pending":
-        raise HTTPException(status_code=409, detail="Task is not pending")
 
     candidate = db.query(UserProfile).filter(UserProfile.user_id == task.candidate_user_id).first()
     if not candidate:
@@ -113,10 +115,27 @@ def confirm_verify(
         raise HTTPException(status_code=422, detail="confirmedBy is required when auth is disabled")
 
     setattr(candidate, task.verify_field, confirmed_value)
-    task.task_status = "confirmed"
-    task.confirmed_value = str(confirmed_value)
-    task.confirmed_by = confirmed_by
-    task.confirmed_at = utc_now()
+
+    confirmed_at = utc_now()
+    updated_rows = (
+        db.query(VerifyTask)
+        .filter(
+            VerifyTask.task_id == task_id,
+            VerifyTask.task_status == "pending",
+        )
+        .update(
+            {
+                VerifyTask.task_status: "confirmed",
+                VerifyTask.confirmed_value: str(confirmed_value),
+                VerifyTask.confirmed_by: confirmed_by,
+                VerifyTask.confirmed_at: confirmed_at,
+            },
+            synchronize_session=False,
+        )
+    )
+    if updated_rows == 0:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Task is not pending")
 
     db.commit()
     audit_log(
