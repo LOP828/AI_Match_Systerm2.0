@@ -1,9 +1,9 @@
 {
-  "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+  "python.defaultInterpreterPath": "E:\\codex\\ai_match_system2.0\\.venv\\Scripts\\python.exe",
   "python.terminal.activateEnvironment": true,
   "python.testing.pytestEnabled": true,
   "python.testing.pytestArgs": [
     "backend"
   ],
   "python.envFile": "${workspaceFolder}\\backend\\.env"
-}
+} 

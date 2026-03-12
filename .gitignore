@@ -1,9 +1,11 @@
 ﻿# Python
 .venv/
+.pyuser/
 __pycache__/
 *.pyc
 *.pyo
 *.db
+backend/.pytest_tmp/
 
 # Node
 node_modules/

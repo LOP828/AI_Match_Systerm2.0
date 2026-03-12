@@ -17,7 +17,7 @@ class Settings(BaseSettings):
 
     auth_required: bool = True
     privileged_roles: str = "admin,matchmaker"
-    allow_legacy_headers: bool = True
+    allow_legacy_headers: bool = False
     cors_allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     allow_sqlite_in_production: bool = False
 
@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     @property
     def is_development_like(self) -> bool:
         return self.environment in {"development", "test"}
+
+    @property
+    def legacy_headers_enabled(self) -> bool:
+        return self.allow_legacy_headers and self.environment == "test"
 
     @property
     def ai_ready(self) -> bool:

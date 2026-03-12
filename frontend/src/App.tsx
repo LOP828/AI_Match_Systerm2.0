@@ -46,7 +46,7 @@ function App() {
             <Route path="/user/:id" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
             <Route path="/recommendation/:id" element={<ProtectedRoute><RecommendationResults /></ProtectedRoute>} />
             <Route path="/verify-tasks" element={<PrivilegedRoute><VerifyTasks /></PrivilegedRoute>} />
-            <Route path="/feedback" element={<ProtectedRoute><FeedbackForm /></ProtectedRoute>} />
+            <Route path="/feedback" element={<PrivilegedRoute><FeedbackForm /></PrivilegedRoute>} />
             <Route path="/ai-extraction-review" element={<PrivilegedRoute><AIExtractionReview /></PrivilegedRoute>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

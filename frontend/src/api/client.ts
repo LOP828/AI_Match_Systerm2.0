@@ -78,34 +78,51 @@ export const api = {
     get: (userId: number) => request<ProfileFull>(`/profile/${userId}`),
     update: (userId: number, data: ProfileUpdate) =>
       request<ProfileResponse>(`/profile/${userId}`, { method: 'POST', body: JSON.stringify(data) }),
+    addPreference: (userId: number, data: PreferenceCreate) =>
+      request<PreferenceResponse>(`/profile/${userId}/preference`, { method: 'POST', body: JSON.stringify(data) }),
+    deletePreference: (userId: number, preferenceId: number) =>
+      request<{ success: boolean }>(`/profile/${userId}/preference/${preferenceId}`, { method: 'DELETE' }),
     addConstraint: (userId: number, data: ConstraintCreate) =>
       request<ConstraintResponse>(`/profile/${userId}/constraint`, { method: 'POST', body: JSON.stringify(data) }),
+    deleteConstraint: (userId: number, constraintId: number) =>
+      request<{ success: boolean }>(`/profile/${userId}/constraint/${constraintId}`, { method: 'DELETE' }),
     addObservationTag: (userId: number, data: ObservationTagCreate) =>
       request<ObservationTagResponse>(`/profile/${userId}/observation-tag`, { method: 'POST', body: JSON.stringify(data) }),
+    deleteObservationTag: (userId: number, tagId: number) =>
+      request<{ success: boolean }>(`/profile/${userId}/observation-tag/${tagId}`, { method: 'DELETE' }),
   },
   recommendation: {
     generate: (body: GenerateRequest) =>
       request<GenerateResponse>('/recommendation/generate', { method: 'POST', body: JSON.stringify(body) }),
     get: (requesterId: number, stage?: string) =>
       request<SnapshotItem[]>(`/recommendation/${requesterId}${stage ? `?stage=${stage}` : ''}`),
+    regenerate: (requesterId: number, body?: { topN?: number }) =>
+      request<RegenerateResponse>(`/recommendation/regenerate/${requesterId}`, {
+        method: 'POST',
+        body: JSON.stringify(body || {}),
+      }),
   },
   verifyTasks: {
     get: (requesterUserId: number, status?: string) =>
       request<VerifyTaskItem[]>(`/verify-tasks/?requesterUserId=${requesterUserId}${status ? `&status=${status}` : ''}`),
     confirm: (taskId: number, body: ConfirmVerifyRequest) =>
-      request<{ success: boolean }>(`/verify-tasks/${taskId}/confirm`, { method: 'POST', body: JSON.stringify(body) }),
+      request<ConfirmVerifyResponse>(`/verify-tasks/${taskId}/confirm`, { method: 'POST', body: JSON.stringify(body) }),
   },
   feedback: {
     recordMeeting: (body: RecordMeetingRequest) =>
-      request<{ success: boolean }>('/feedback/meeting', { method: 'POST', body: JSON.stringify(body) }),
+      request<{ success: boolean; eventId: number }>('/feedback/meeting', { method: 'POST', body: JSON.stringify(body) }),
     getHistory: (userAId: number, userBId: number) =>
       request<InteractionHistoryItem[]>(`/feedback/history?userAId=${userAId}&userBId=${userBId}`),
+    getUserHistory: (userId: number, limit?: number) =>
+      request<InteractionHistoryItem[]>(`/feedback/history/${userId}${limit ? `?limit=${limit}` : ''}`),
+    getSignals: (userId: number) =>
+      request<FeedbackSignals>(`/feedback/signals/${userId}`),
   },
   aiExtraction: {
     get: (entityType: string, entityId: number, status?: string) =>
       request<AiExtractionItem[]>(`/ai-extraction/?entityType=${entityType}&entityId=${entityId}${status ? `&status=${status}` : ''}`),
     approve: (extractionId: number, reviewedBy?: number) =>
-      request<{ success: boolean }>(`/ai-extraction/${extractionId}/approve${reviewedBy ? `?reviewedBy=${reviewedBy}` : ''}`, { method: 'POST' }),
+      request<ApproveExtractionResponse>(`/ai-extraction/${extractionId}/approve${reviewedBy ? `?reviewedBy=${reviewedBy}` : ''}`, { method: 'POST' }),
     reject: (extractionId: number, reviewedBy?: number) =>
       request<{ success: boolean }>(`/ai-extraction/${extractionId}/reject${reviewedBy ? `?reviewedBy=${reviewedBy}` : ''}`, { method: 'POST' }),
   },
@@ -195,6 +212,14 @@ export interface ProfileUpdate {
   active_status?: string
 }
 
+export interface PreferenceCreate {
+  dimension: string
+  operator: string
+  value_json?: Record<string, unknown>
+  priority_level?: string
+  source_type?: string
+}
+
 export interface ConstraintCreate {
   tag_code: string
   tag_type: string
@@ -263,6 +288,11 @@ export interface RecordMeetingRequest {
   userBId: number
   willingnessA: string
   willingnessB: string
+  conversationSmoothness?: number
+  appearanceAcceptance?: number
+  valuesAlignment?: number
+  rejectReasonPrimary?: string
+  rejectReasonSecondary?: string
   issueTagsJson?: string[]
   memoText: string
 }
@@ -274,10 +304,25 @@ export interface InteractionHistoryItem {
   user_b_id: number
   willingness_a?: string
   willingness_b?: string
+  conversation_smoothness?: number
+  appearance_acceptance?: number
+  values_alignment?: number
+  reject_reason_primary?: string
+  reject_reason_secondary?: string
   issue_tags_json?: string[]
   memo_text?: string
   event_time?: string
   created_at?: string
+}
+
+export interface FeedbackSignals {
+  userId: number
+  totalMeetings: number
+  avgConversationSmoothness?: number
+  avgAppearanceAcceptance?: number
+  avgValuesAlignment?: number
+  topRejectReasons: string[]
+  continueRate?: number
 }
 
 export interface AiExtractionItem {
@@ -286,8 +331,45 @@ export interface AiExtractionItem {
   entity_id: number
   extracted_label: string
   extracted_value?: string
+  extraction_type?: string
   confidence?: number
   evidence_text?: string
   extraction_status?: string
+  suggested_action?: string
   created_at?: string
+}
+
+export interface ApproveExtractionResponse {
+  success: boolean
+  extractionId: number
+  status: string
+  appliedAction: string
+  targetEntity?: string
+  createdObservationTagId?: number
+  createdConstraintId?: number
+  createdVerifyTaskId?: number
+}
+
+export interface RegenerateItem {
+  candidateId: number
+  score: number
+  rank: number
+}
+
+export interface RegenerateResponse {
+  requesterId: number
+  stage: string
+  usedConfirmedVerifyTasks: number
+  items: RegenerateItem[]
+}
+
+export interface ConfirmVerifyResponse {
+  success: boolean
+  taskId: number
+  status: string
+  writtenField: string
+  writtenValue: string
+  pendingCount: number
+  confirmedCount: number
+  shouldRegenerateRecommendation: boolean
 }

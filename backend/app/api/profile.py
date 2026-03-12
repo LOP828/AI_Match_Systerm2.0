@@ -21,6 +21,9 @@ from app.services.profile_service import (
     add_user_constraint,
     add_user_observation_tag,
     add_user_preference,
+    delete_user_constraint,
+    delete_user_observation_tag,
+    delete_user_preference,
     get_user_constraints,
     get_user_observation_tags,
     get_user_preferences,
@@ -212,3 +215,51 @@ def add_observation_tag(
         observer_type=tag.observer_type,
         status=tag.status,
     )
+
+
+@router.delete("/{user_id}/preference/{preference_id}")
+def remove_preference(
+    user_id: int,
+    preference_id: int,
+    db: Session = Depends(get_db),
+    actor: ActorContext = Depends(get_actor_context),
+    settings: Settings = Depends(get_settings),
+):
+    require_resource_access(actor, user_id, settings)
+
+    deleted = delete_user_preference(db, user_id, preference_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Preference not found")
+    return {"success": True}
+
+
+@router.delete("/{user_id}/constraint/{constraint_id}")
+def remove_constraint(
+    user_id: int,
+    constraint_id: int,
+    db: Session = Depends(get_db),
+    actor: ActorContext = Depends(get_actor_context),
+    settings: Settings = Depends(get_settings),
+):
+    require_resource_access(actor, user_id, settings)
+
+    deleted = delete_user_constraint(db, user_id, constraint_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Constraint not found")
+    return {"success": True}
+
+
+@router.delete("/{user_id}/observation-tag/{tag_id}")
+def remove_observation_tag(
+    user_id: int,
+    tag_id: int,
+    db: Session = Depends(get_db),
+    actor: ActorContext = Depends(get_actor_context),
+    settings: Settings = Depends(get_settings),
+):
+    require_privileged_role(actor, settings)
+
+    deleted = delete_user_observation_tag(db, user_id, tag_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Observation tag not found")
+    return {"success": True}

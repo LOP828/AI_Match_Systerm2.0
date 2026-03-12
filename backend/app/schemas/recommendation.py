@@ -41,6 +41,23 @@ class GenerateResponse(BaseModel):
     topCandidates: list[TopCandidate]
 
 
+class RegenerateRequest(BaseModel):
+    topN: int = Field(default=5, ge=1, le=20)
+
+
+class RegenerateItem(BaseModel):
+    candidateId: int
+    score: float
+    rank: int
+
+
+class RegenerateResponse(BaseModel):
+    requesterId: int
+    stage: str
+    usedConfirmedVerifyTasks: int
+    items: list[RegenerateItem]
+
+
 class SnapshotResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -75,6 +75,42 @@ def add_user_constraint(db: Session, user_id: int, data: dict[str, Any]) -> User
     return constraint
 
 
+def delete_user_preference(db: Session, user_id: int, preference_id: int) -> bool:
+    pref = db.query(UserPreference).filter(
+        UserPreference.preference_id == preference_id,
+        UserPreference.user_id == user_id,
+    ).first()
+    if not pref:
+        return False
+    db.delete(pref)
+    db.commit()
+    return True
+
+
+def delete_user_constraint(db: Session, user_id: int, constraint_id: int) -> bool:
+    constraint = db.query(UserConstraint).filter(
+        UserConstraint.constraint_id == constraint_id,
+        UserConstraint.user_id == user_id,
+    ).first()
+    if not constraint:
+        return False
+    db.delete(constraint)
+    db.commit()
+    return True
+
+
+def delete_user_observation_tag(db: Session, user_id: int, tag_id: int) -> bool:
+    tag = db.query(UserObservationTag).filter(
+        UserObservationTag.tag_id == tag_id,
+        UserObservationTag.user_id == user_id,
+    ).first()
+    if not tag:
+        return False
+    db.delete(tag)
+    db.commit()
+    return True
+
+
 def get_user_observation_tags(db: Session, user_id: int) -> list[UserObservationTag]:
     return db.query(UserObservationTag).filter(UserObservationTag.user_id == user_id).all()
 

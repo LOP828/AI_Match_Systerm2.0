@@ -38,6 +38,11 @@ class InteractionEvent(Base):
     willingness_a: Mapped[str | None] = mapped_column(String(32), nullable=True)
     willingness_b: Mapped[str | None] = mapped_column(String(32), nullable=True)
     issue_tags_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    conversation_smoothness: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    appearance_acceptance: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    values_alignment: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reject_reason_primary: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reject_reason_secondary: Mapped[str | None] = mapped_column(String(64), nullable=True)
     memo_ref_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_by: Mapped[int | None] = mapped_column(
         BigInteger,

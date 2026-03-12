@@ -80,11 +80,11 @@ def get_actor_context(
             return decode_access_token(token, settings)
         raise HTTPException(status_code=401, detail="Unsupported authorization scheme")
 
-    if settings.allow_legacy_headers and settings.is_development_like and x_user_id is not None:
+    if settings.legacy_headers_enabled and x_user_id is not None:
         role = _normalize_role(x_role or "user")
         return ActorContext(user_id=x_user_id, role=role, source="legacy_header")
 
-    if x_user_id is not None and not (settings.allow_legacy_headers and settings.is_development_like):
+    if x_user_id is not None and not settings.legacy_headers_enabled:
         raise HTTPException(status_code=401, detail="Legacy actor headers are disabled")
 
     if settings.auth_required:

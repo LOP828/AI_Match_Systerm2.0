@@ -20,10 +20,11 @@ ObservationStatusType: TypeAlias = Literal["suggested", "approved", "rejected", 
 InteractionEventType: TypeAlias = Literal["recommend", "meet", "review", "terminate"]
 OutcomeLabelType: TypeAlias = Literal["success", "failed", "no_show"]
 WillingnessType: TypeAlias = Literal["yes", "no", "maybe", "unknown"]
-SnapshotStageType: TypeAlias = Literal["rough", "final"]
+SnapshotStageType: TypeAlias = Literal["rough", "verified", "final"]
 VerifyTaskStatusType: TypeAlias = Literal["pending", "confirmed", "rejected"]
 AiEntityType: TypeAlias = Literal["user", "memo", "event"]
 AiExtractionStatusType: TypeAlias = Literal["suggested", "approved", "rejected", "failed"]
+ExtractionTypeType: TypeAlias = Literal["observation", "risk"]
 
 ROLE_VALUES = get_args(RoleType)
 GENDER_VALUES = get_args(GenderType)
@@ -48,6 +49,7 @@ SNAPSHOT_STAGE_VALUES = get_args(SnapshotStageType)
 VERIFY_TASK_STATUS_VALUES = get_args(VerifyTaskStatusType)
 AI_ENTITY_TYPE_VALUES = get_args(AiEntityType)
 AI_EXTRACTION_STATUS_VALUES = get_args(AiExtractionStatusType)
+EXTRACTION_TYPE_VALUES = get_args(ExtractionTypeType)
 
 VERIFY_FIELD_VALUES = (
     "age",

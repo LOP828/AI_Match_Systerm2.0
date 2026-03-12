@@ -35,12 +35,12 @@ export default function Dashboard() {
           <h3 className="font-medium">推荐结果</h3>
           <p className="text-sm text-gray-500 mt-1">为当前登录用户生成推荐</p>
         </Link>
-        <Link to="/feedback" className="block p-4 bg-white rounded-lg shadow hover:shadow-md border">
-          <h3 className="font-medium">反馈录入</h3>
-          <p className="text-sm text-gray-500 mt-1">记录见面反馈</p>
-        </Link>
         {session?.user.privileged ? (
           <>
+            <Link to="/feedback" className="block p-4 bg-white rounded-lg shadow hover:shadow-md border">
+              <h3 className="font-medium">反馈录入</h3>
+              <p className="text-sm text-gray-500 mt-1">记录见面反馈</p>
+            </Link>
             <Link to="/verify-tasks" className="block p-4 bg-white rounded-lg shadow hover:shadow-md border">
               <h3 className="font-medium">待核实队列</h3>
               <p className="text-sm text-gray-500 mt-1">按目标用户查看和处理待核实任务</p>

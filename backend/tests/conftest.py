@@ -2,8 +2,10 @@ from collections.abc import Generator
 from pathlib import Path
 import sys
 
+import anyio
+import anyio.to_thread
 import pytest
-from fastapi.testclient import TestClient
+import httpx
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -15,6 +17,44 @@ from app.config import Settings, get_settings
 from app.db import get_db
 from app.main import app
 from app.models import Base
+
+
+class SyncASGIClient:
+    def __init__(self, asgi_app, after_request=None):
+        self._app = asgi_app
+        self._after_request = after_request
+
+    def request(self, method: str, url: str, **kwargs):
+        async def _request():
+            transport = httpx.ASGITransport(app=self._app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://testserver", timeout=20.0) as client:
+                return await client.request(method, url, **kwargs)
+
+        try:
+            return anyio.run(_request)
+        finally:
+            if self._after_request is not None:
+                self._after_request()
+
+    def get(self, url: str, **kwargs):
+        return self.request("GET", url, **kwargs)
+
+    def post(self, url: str, **kwargs):
+        return self.request("POST", url, **kwargs)
+
+    def delete(self, url: str, **kwargs):
+        return self.request("DELETE", url, **kwargs)
+
+
+@pytest.fixture(autouse=True)
+def inline_threadpool(monkeypatch):
+    async def run_sync_inline(func, *args, **kwargs):
+        kwargs.pop("limiter", None)
+        kwargs.pop("abandon_on_cancel", None)
+        kwargs.pop("cancellable", None)
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(anyio.to_thread, "run_sync", run_sync_inline)
 
 
 @pytest.fixture()
@@ -55,18 +95,24 @@ def db_session(tmp_path: Path) -> Generator[Session, None, None]:
 
 
 @pytest.fixture()
-def client(db_session: Session, test_settings: Settings) -> Generator[TestClient, None, None]:
+def client(db_session: Session, test_settings: Settings) -> Generator[SyncASGIClient, None, None]:
+    RequestSessionLocal = sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        bind=db_session.get_bind(),
+    )
+
     def override_get_db() -> Generator[Session, None, None]:
+        request_session = RequestSessionLocal()
         try:
-            yield db_session
+            yield request_session
         finally:
-            pass
+            request_session.close()
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_settings] = lambda: test_settings
 
-    with TestClient(app) as test_client:
-        yield test_client
+    yield SyncASGIClient(app, after_request=db_session.expire_all)
 
     app.dependency_overrides.clear()
     get_settings.cache_clear()

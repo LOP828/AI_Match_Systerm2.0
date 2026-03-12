@@ -234,6 +234,75 @@ def test_privileged_actor_can_create_observation_tags(client, db_session: Sessio
     assert response.json()["observer_type"] == "matchmaker"
 
 
+def test_constraint_creation_rejects_unsupported_field(client, db_session: Session, test_settings: Settings):
+    db_session.add(UserProfile(user_id=1, active_status="active", open_to_match=1))
+    db_session.commit()
+
+    response = client.post(
+        "/api/profile/1/constraint",
+        json={"tag_code": "bad_field", "tag_type": "verify", "applies_to_field": "favorite_color"},
+        headers=_bearer_headers(1, "matchmaker", test_settings),
+    )
+    assert response.status_code == 422
+    assert "Input should be" in response.json()["detail"][0]["msg"]
+
+
+def test_recommendation_generation_ignores_legacy_invalid_verify_constraints(client, db_session: Session, test_settings: Settings):
+    db_session.add_all([
+        UserProfile(user_id=1, gender="male", age=30, city_code="310000", active_status="active", open_to_match=1),
+        UserProfile(user_id=2, gender="female", age=28, city_code="310000", active_status="active", open_to_match=1),
+    ])
+    db_session.commit()
+
+    # Legacy bad rows should not be able to break recommendation generation.
+    db_session.add(
+        UserConstraint(
+            user_id=1,
+            tag_code="legacy_bad_constraint",
+            tag_type="verify",
+            applies_to_field="favorite_color",
+            status="active",
+            constraint_scope="warning",
+        )
+    )
+    db_session.commit()
+
+    response = client.post(
+        "/api/recommendation/generate",
+        json={"requesterUserId": 1},
+        headers=_bearer_headers(1, "user", test_settings),
+    )
+    assert response.status_code == 200
+    assert len(response.json()["topCandidates"]) == 1
+    assert db_session.query(VerifyTask).count() == 0
+
+
+def test_verify_confirmation_rejects_invalid_enum_value(client, db_session: Session, test_settings: Settings):
+    db_session.add_all([
+        UserProfile(user_id=1, active_status="active", open_to_match=1),
+        UserProfile(user_id=2, active_status="active", open_to_match=1),
+    ])
+    db_session.commit()
+    upsert_password_credential(db_session, 1, "password123", "matchmaker")
+
+    task = VerifyTask(
+        requester_user_id=1,
+        candidate_user_id=2,
+        verify_field="smoking_status",
+        task_status="pending",
+    )
+    db_session.add(task)
+    db_session.commit()
+
+    response = client.post(
+        f"/api/verify-tasks/{task.task_id}/confirm",
+        json={"confirmedValue": "heavy"},
+        headers=_bearer_headers(1, "matchmaker", test_settings),
+    )
+    assert response.status_code == 422
+    assert "must be one of" in response.json()["detail"]
+
+
 def test_production_settings_reject_insecure_runtime_combinations():
     with pytest.raises(ValueError):
         Settings(
@@ -378,6 +447,14 @@ def test_model_constraints_reject_invalid_values_and_duplicates(db_session: Sess
     db_session.commit()
 
     db_session.add(UserPreference(user_id=1, dimension="invalid", operator="in"))
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
+
+    db_session.add_all([
+        AiExtraction(entity_type="memo", entity_id=1, extracted_label="job", job_key="memo:1"),
+        AiExtraction(entity_type="memo", entity_id=1, extracted_label="job", job_key="memo:1"),
+    ])
     with pytest.raises(IntegrityError):
         db_session.commit()
     db_session.rollback()
@@ -559,6 +636,14 @@ def test_alembic_upgrade_head_enforces_new_schema(tmp_path: Path, monkeypatch):
         session.rollback()
 
         session.add(UserProfile(user_id=3, active_status="broken"))
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+        session.add_all([
+            AiExtraction(entity_type="memo", entity_id=1, extracted_label="job", job_key="memo:1"),
+            AiExtraction(entity_type="memo", entity_id=1, extracted_label="job", job_key="memo:1"),
+        ])
         with pytest.raises(IntegrityError):
             session.commit()
         session.rollback()

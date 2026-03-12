@@ -53,6 +53,7 @@ export default function VerifyTasks() {
   const { session } = useAuth()
   const [requesterInput, setRequesterInput] = useState('')
   const [draftValues, setDraftValues] = useState<Record<number, string>>({})
+  const [lastConfirmResult, setLastConfirmResult] = useState<Awaited<ReturnType<typeof api.verifyTasks.confirm>> | null>(null)
   const defaultRequesterUserId = session?.user.userId ?? 0
   const requesterUserId = Number(requesterInput) || defaultRequesterUserId
 
@@ -65,13 +66,17 @@ export default function VerifyTasks() {
   const confirmMutation = useMutation({
     mutationFn: ({ taskId, value }: { taskId: number; value: string }) =>
       api.verifyTasks.confirm(taskId, { confirmedValue: value }),
-    onSuccess: (_result, variables) => {
+    onSuccess: (result, variables) => {
+      setLastConfirmResult(result)
       setDraftValues((current) => {
         const next = { ...current }
         delete next[variables.taskId]
         return next
       })
       queryClient.invalidateQueries({ queryKey: ['verifyTasks', requesterUserId] })
+      if (result.shouldRegenerateRecommendation) {
+        queryClient.invalidateQueries({ queryKey: ['recommendations', requesterUserId] })
+      }
     },
   })
 
@@ -106,6 +111,27 @@ export default function VerifyTasks() {
             className="w-full rounded border px-3 py-2 md:w-64"
           />
         </div>
+
+        {lastConfirmResult && (
+          <div className={`mb-4 rounded-lg border px-4 py-3 text-sm ${
+            lastConfirmResult.shouldRegenerateRecommendation
+              ? 'border-green-200 bg-green-50 text-green-800'
+              : 'border-blue-200 bg-blue-50 text-blue-800'
+          }`}>
+            <div>
+              Confirmed {lastConfirmResult.writtenField} = {lastConfirmResult.writtenValue}. 
+              Confirmed total {lastConfirmResult.confirmedCount}, pending {lastConfirmResult.pendingCount}.
+            </div>
+            {lastConfirmResult.shouldRegenerateRecommendation && (
+              <button
+                onClick={() => navigate(`/recommendation/${requesterUserId}`)}
+                className="mt-2 rounded bg-green-600 px-3 py-1.5 text-white hover:bg-green-700"
+              >
+                View reranked results
+              </button>
+            )}
+          </div>
+        )}
 
         {(!data || data.length === 0) && <p className="text-gray-500">No pending tasks.</p>}
 

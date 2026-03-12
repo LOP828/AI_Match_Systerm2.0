@@ -1,11 +1,13 @@
+from typing import Literal
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.auth import ActorContext, get_actor_context, require_resource_access
 from app.config import Settings, get_settings
 from app.db import get_db
-from app.schemas.recommendation import GenerateRequest, GenerateResponse, SnapshotResponse
-from app.services.recommendation_service import generate_candidates, get_recommendations
+from app.schemas.recommendation import GenerateRequest, GenerateResponse, RegenerateRequest, RegenerateResponse, SnapshotResponse
+from app.services.recommendation_service import generate_candidates, get_recommendations, regenerate_candidates
 from app.time_utils import to_api_datetime
 
 router = APIRouter()
@@ -23,10 +25,23 @@ def post_generate(
     return generate_candidates(db, body.requesterUserId, filters)
 
 
+@router.post("/regenerate/{requester_id}", response_model=RegenerateResponse)
+def post_regenerate(
+    requester_id: int,
+    body: RegenerateRequest | None = None,
+    db: Session = Depends(get_db),
+    actor: ActorContext = Depends(get_actor_context),
+    settings: Settings = Depends(get_settings),
+):
+    require_resource_access(actor, requester_id, settings)
+    top_n = body.topN if body else 5
+    return regenerate_candidates(db, requester_id, top_n=top_n)
+
+
 @router.get("/{requester_id}", response_model=list[SnapshotResponse])
 def get_recommendation_snapshots(
     requester_id: int,
-    stage: str | None = None,
+    stage: Literal["rough", "verified", "final"] | None = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),

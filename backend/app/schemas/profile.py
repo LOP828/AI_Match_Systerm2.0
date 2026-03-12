@@ -1,7 +1,7 @@
 from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.choices import (
     ActiveStatusType,
@@ -19,6 +19,8 @@ from app.choices import (
     SmokingStatusType,
     VerificationStatusType,
 )
+from app.profile_fields import is_supported_profile_field
+from app.schemas.verify_task import VerifyFieldType
 
 
 class ProfileBase(BaseModel):
@@ -77,10 +79,18 @@ class PreferenceResponse(BaseModel):
 class ConstraintCreate(BaseModel):
     tag_code: str = Field(min_length=1, max_length=64)
     tag_type: ConstraintTagType
-    applies_to_field: str = Field(min_length=1, max_length=64)
+    applies_to_field: VerifyFieldType
     source_type: str | None = Field(default="matchmaker_input", max_length=32)
     direction: ConstraintDirectionType | None = None
     confidence: float | None = Field(default=None, ge=0, le=100)
+
+    @model_validator(mode="after")
+    def validate_supported_constraint(self):
+        if self.tag_type == "penalty":
+            raise ValueError("Constraint tag_type 'penalty' is not supported")
+        if not is_supported_profile_field(self.applies_to_field):
+            raise ValueError(f"Unsupported applies_to_field: {self.applies_to_field}")
+        return self
 
 
 class ConstraintResponse(BaseModel):

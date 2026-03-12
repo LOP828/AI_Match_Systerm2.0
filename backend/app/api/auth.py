@@ -1,3 +1,4 @@
+import threading
 from collections import defaultdict, deque
 from time import monotonic
 
@@ -21,14 +22,12 @@ from app.services.auth_service import authenticate_with_password, upsert_passwor
 
 router = APIRouter()
 
-MAX_LOGIN_ATTEMPTS = 5
+MAX_LOGIN_ATTEMPTS = 5        # per IP+user_id pair
+MAX_IP_LOGIN_ATTEMPTS = 30   # per IP across all user_ids (prevents cross-user enumeration)
 LOGIN_WINDOW_SECONDS = 300
+
+_rate_lock = threading.Lock()
 _failed_login_attempts: dict[str, deque[float]] = defaultdict(deque)
-
-
-def _login_bucket_key(request: Request, user_id: int) -> str:
-    client_host = request.client.host if request.client else "unknown"
-    return f"{client_host}:{user_id}"
 
 
 def _prune_attempts(attempts: deque[float], now: float) -> None:
@@ -36,26 +35,40 @@ def _prune_attempts(attempts: deque[float], now: float) -> None:
         attempts.popleft()
 
 
-def _ensure_login_not_rate_limited(request: Request, user_id: int) -> str:
-    bucket_key = _login_bucket_key(request, user_id)
-    attempts = _failed_login_attempts[bucket_key]
+def _ensure_login_not_rate_limited(request: Request, user_id: int) -> tuple[str, str]:
+    client_host = request.client.host if request.client else "unknown"
+    pair_key = f"{client_host}:{user_id}"
+    ip_key = f"ip:{client_host}"
     now = monotonic()
-    _prune_attempts(attempts, now)
-    if len(attempts) >= MAX_LOGIN_ATTEMPTS:
-        audit_log("user.login", "rate_limited", request=request, targetUserId=user_id)
-        raise HTTPException(status_code=429, detail="Too many login attempts, please retry later")
-    return bucket_key
+
+    with _rate_lock:
+        pair_attempts = _failed_login_attempts[pair_key]
+        ip_attempts = _failed_login_attempts[ip_key]
+        _prune_attempts(pair_attempts, now)
+        _prune_attempts(ip_attempts, now)
+
+        if len(pair_attempts) >= MAX_LOGIN_ATTEMPTS or len(ip_attempts) >= MAX_IP_LOGIN_ATTEMPTS:
+            audit_log("user.login", "rate_limited", request=request, targetUserId=user_id)
+            raise HTTPException(status_code=429, detail="Too many login attempts, please retry later")
+
+    return pair_key, ip_key
 
 
-def _record_login_failure(bucket_key: str) -> None:
-    attempts = _failed_login_attempts[bucket_key]
+def _record_login_failure(pair_key: str, ip_key: str) -> None:
     now = monotonic()
-    _prune_attempts(attempts, now)
-    attempts.append(now)
+    with _rate_lock:
+        for key in (pair_key, ip_key):
+            attempts = _failed_login_attempts[key]
+            _prune_attempts(attempts, now)
+            attempts.append(now)
 
 
-def _clear_login_failures(bucket_key: str) -> None:
-    _failed_login_attempts.pop(bucket_key, None)
+def _clear_login_failures(pair_key: str, ip_key: str) -> None:
+    # Only clear the per-user pair bucket on success; the per-IP bucket intentionally
+    # keeps its history so that cross-user enumeration attempts are not reset by one
+    # lucky correct login.
+    with _rate_lock:
+        _failed_login_attempts.pop(pair_key, None)
 
 
 @router.post('/login', response_model=TokenResponse)
@@ -65,14 +78,14 @@ def login_with_password(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    bucket_key = _ensure_login_not_rate_limited(request, body.userId)
+    pair_key, ip_key = _ensure_login_not_rate_limited(request, body.userId)
     authenticated_user = authenticate_with_password(db, body.userId, body.password)
     if authenticated_user is None:
-        _record_login_failure(bucket_key)
+        _record_login_failure(pair_key, ip_key)
         audit_log("user.login", "failure", request=request, targetUserId=body.userId)
         raise HTTPException(status_code=401, detail='Invalid credentials')
 
-    _clear_login_failures(bucket_key)
+    _clear_login_failures(pair_key, ip_key)
 
     access_token = create_access_token(
         authenticated_user.user_id,

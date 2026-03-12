@@ -3,47 +3,25 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
-from app.auth import ActorContext, get_actor_context, require_resource_access
+from app.auth import ActorContext, get_actor_context, require_privileged_role, require_resource_access
 from app.audit import audit_log
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.models import UserProfile, VerifyTask
+from app.profile_fields import is_supported_profile_field, normalize_profile_field_value
 from app.schemas.verify_task import ConfirmVerifyRequest, VerifyTaskResponse
 from app.time_utils import to_api_datetime, utc_now
 
 router = APIRouter()
 
-ALLOWED_VERIFY_FIELDS: dict[str, type] = {
-    "age": int,
-    "height_cm": int,
-    "city_code": str,
-    "education_level": str,
-    "marital_status": str,
-    "occupation": str,
-    "smoking_status": str,
-    "drinking_status": str,
-    "pet_status": str,
-}
-
 
 def _normalize_confirmed_value(field: str, raw_value: str) -> Any:
-    expected_type = ALLOWED_VERIFY_FIELDS.get(field)
-    if expected_type is None:
+    if not is_supported_profile_field(field):
         raise HTTPException(status_code=400, detail=f"Unsupported verify field: {field}")
-
-    if expected_type is int:
-        try:
-            return int(raw_value)
-        except (TypeError, ValueError) as exc:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Field '{field}' requires an integer value",
-            ) from exc
-
-    value = str(raw_value).strip()
-    if not value:
-        raise HTTPException(status_code=422, detail=f"Field '{field}' cannot be empty")
-    return value
+    try:
+        return normalize_profile_field_value(field, raw_value)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/", response_model=list[VerifyTaskResponse])
@@ -98,7 +76,9 @@ def confirm_verify(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    require_resource_access(actor, task.requester_user_id, settings)
+    # Confirming a verify task overwrites another user's profile field, so this
+    # operation is restricted to privileged roles (matchmaker / admin) only.
+    require_privileged_role(actor, settings)
 
     candidate = db.query(UserProfile).filter(UserProfile.user_id == task.candidate_user_id).first()
     if not candidate:
@@ -149,4 +129,31 @@ def confirm_verify(
         verifyField=task.verify_field,
         confirmedValue=str(confirmed_value),
     )
-    return {"success": True, "confirmedValue": confirmed_value}
+
+    pending_count = (
+        db.query(VerifyTask)
+        .filter(
+            VerifyTask.requester_user_id == task.requester_user_id,
+            VerifyTask.task_status == "pending",
+        )
+        .count()
+    )
+    confirmed_count = (
+        db.query(VerifyTask)
+        .filter(
+            VerifyTask.requester_user_id == task.requester_user_id,
+            VerifyTask.task_status == "confirmed",
+        )
+        .count()
+    )
+
+    return {
+        "success": True,
+        "taskId": task.task_id,
+        "status": "confirmed",
+        "writtenField": task.verify_field,
+        "writtenValue": str(confirmed_value),
+        "pendingCount": pending_count,
+        "confirmedCount": confirmed_count,
+        "shouldRegenerateRecommendation": pending_count == 0,
+    }
