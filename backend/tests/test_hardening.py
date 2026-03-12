@@ -103,6 +103,48 @@ def test_login_and_verify_confirmation_emit_audit_logs(client, db_session: Sessi
     assert any('"event": "verify_task.confirm"' in message and '"outcome": "success"' in message for message in messages)
 
 
+
+def test_verify_task_confirm_conflict_returns_409_and_preserves_first_write(client, db_session: Session, test_settings: Settings):
+    db_session.add_all([
+        UserProfile(user_id=1, active_status="active", open_to_match=1),
+        UserProfile(user_id=2, active_status="active", open_to_match=1, city_code="100000"),
+    ])
+    db_session.commit()
+
+    task = VerifyTask(
+        requester_user_id=1,
+        candidate_user_id=2,
+        verify_field="city_code",
+        task_status="pending",
+    )
+    db_session.add(task)
+    db_session.commit()
+
+    headers = _bearer_headers(1, "matchmaker", test_settings)
+
+    first_response = client.post(
+        f"/api/verify-tasks/{task.task_id}/confirm",
+        json={"confirmedValue": "310000"},
+        headers=headers,
+    )
+    assert first_response.status_code == 200
+
+    second_response = client.post(
+        f"/api/verify-tasks/{task.task_id}/confirm",
+        json={"confirmedValue": "440100"},
+        headers=headers,
+    )
+    assert second_response.status_code == 409
+    assert second_response.json()["detail"] == "Task is not pending"
+
+    db_session.expire_all()
+    refreshed_task = db_session.query(VerifyTask).filter(VerifyTask.task_id == task.task_id).one()
+    refreshed_candidate = db_session.query(UserProfile).filter(UserProfile.user_id == 2).one()
+
+    assert refreshed_task.task_status == "confirmed"
+    assert refreshed_task.confirmed_value == "310000"
+    assert refreshed_candidate.city_code == "310000"
+
 def test_non_privileged_user_cannot_escalate_role_via_credential_upsert(client, db_session: Session, test_settings: Settings):
     db_session.add(UserProfile(user_id=1, active_status="active", open_to_match=1))
     db_session.commit()

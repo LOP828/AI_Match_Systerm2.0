@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import jwt
 from fastapi import Depends, Header, HTTPException
@@ -29,7 +29,7 @@ def create_access_token(
     settings: Settings,
     expires_minutes: int | None = None,
 ) -> str:
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
     ttl_minutes = expires_minutes if expires_minutes is not None else settings.jwt_expire_minutes
     expires_at = now + timedelta(minutes=max(1, int(ttl_minutes)))
     payload = {
